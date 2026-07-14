@@ -156,6 +156,30 @@ def _format_address(tags: dict) -> str:
     return ", ".join(p for p in parts if p)
 
 
+def _search_nearby_communes(
+    lat: float, lon: float, radius_km: float, n_results: int, exclude_name: str | None = None,
+) -> list[dict]:
+    """Communes du référentiel local (déjà chargé pour la résolution de noms, cf.
+    _COMMUNES) triées par distance — pas besoin d'une source distincte : le référentiel
+    INSEE/geo.api.gouv.fr couvre déjà toutes les communes françaises avec leurs
+    coordonnées, plus fiable que les nœuds place=* d'OpenStreetMap pour cet usage."""
+    results = []
+    for c in _COMMUNES:
+        if exclude_name and c["name"] == exclude_name:
+            continue
+        distance_km = _haversine_km(lat, lon, c["lat"], c["lon"])
+        if distance_km > radius_km:
+            continue
+        results.append({
+            "name": c["name"],
+            "postcode": c["postcode"],
+            "population": c["population"],
+            "distance_km": round(distance_km, 2),
+        })
+    results.sort(key=lambda r: r["distance_km"])
+    return results[:n_results]
+
+
 def _bbox_degrees(lat: float, radius_km: float) -> tuple[float, float]:
     lat_delta = radius_km / 111.0
     lon_delta = radius_km / (111.0 * max(math.cos(math.radians(lat)), 0.01))
@@ -403,6 +427,8 @@ async def on_user_connected(topic: str, payload):
     result_topic = f"users/{username}/{session_id}/places/result"
     poi_request_topic = f"users/{username}/{session_id}/places/poi_request"
     poi_result_topic = f"users/{username}/{session_id}/places/poi_result"
+    nearby_request_topic = f"users/{username}/{session_id}/places/nearby_request"
+    nearby_result_topic = f"users/{username}/{session_id}/places/nearby_result"
 
     nexus = NexusClient.from_api_key(VK_URL, MQTT_HOST, SERVICE_USERNAME, SERVICE_API_KEY, MQTT_PORT)
 
@@ -459,6 +485,27 @@ async def on_user_connected(topic: str, payload):
                     "format": {
                         "location_resolved": {"name": "string", "lat": 0.0, "lon": 0.0},
                         "results": [{"name": "string", "category": "string", "address": "string", "distance_km": 0.0, "source": "string"}],
+                    },
+                },
+                {
+                    "topic": nearby_request_topic,
+                    "description": (
+                        "Liste les communes françaises situées à proximité d'un lieu, dans un rayon "
+                        "donné en km. Utiliser pour 'quelles villes/communes autour de X', 'aux alentours "
+                        "de X', 'dans un rayon de N km de X' — PAS pour chercher un commerce précis "
+                        "(voir places/poi_request pour ça)."
+                    ),
+                    "access": "write",
+                    "response_topic": nearby_result_topic,
+                    "format": {"location": "Magny-les-Hameaux", "radius_km": 10, "n_results": 10},
+                },
+                {
+                    "topic": nearby_result_topic,
+                    "description": "Communes à proximité, triées par distance croissante depuis le lieu résolu.",
+                    "access": "read",
+                    "format": {
+                        "location_resolved": {"name": "string", "lat": 0.0, "lon": 0.0},
+                        "results": [{"name": "string", "postcode": "string", "population": 0, "distance_km": 0.0}],
                     },
                 },
             ],
@@ -521,10 +568,43 @@ async def on_user_connected(topic: str, payload):
         })
         logger.info(f"[{username}/{session_id}] Résultat POI publié ({len(poi_results)} commerce(s))")
 
+    async def on_nearby_request(t: str, p):
+        if not isinstance(p, dict):
+            return
+        location = (p.get("location") or "").strip()
+        if not location:
+            return
+        radius_km = float(p.get("radius_km", 10))
+        n_results = int(p.get("n_results", 10))
+
+        logger.info(f"[{username}] Requête communes proches: location={location!r}, radius_km={radius_km}")
+
+        async with aiohttp.ClientSession() as session:
+            location_matches = await _resolve_location(session, location, 1)
+            if not location_matches:
+                await nexus.publish(nearby_result_topic, {
+                    "location_resolved": None,
+                    "results": [],
+                    "error": f"Lieu '{location}' introuvable",
+                })
+                return
+            resolved = location_matches[0]
+
+        nearby = _search_nearby_communes(
+            resolved["lat"], resolved["lon"], radius_km, n_results, exclude_name=resolved["name"],
+        )
+
+        await nexus.publish(nearby_result_topic, {
+            "location_resolved": {"name": resolved["name"], "lat": resolved["lat"], "lon": resolved["lon"]},
+            "results": nearby,
+        })
+        logger.info(f"[{username}/{session_id}] Résultat communes proches publié ({len(nearby)} commune(s))")
+
     nexus.subscribe(request_topic, on_places_request)
     nexus.subscribe(poi_request_topic, on_poi_request)
+    nexus.subscribe(nearby_request_topic, on_nearby_request)
     nexus.start_listening()
-    logger.info(f"[{username}/{session_id}] Abonné à {request_topic} et {poi_request_topic}")
+    logger.info(f"[{username}/{session_id}] Abonné à {request_topic}, {poi_request_topic} et {nearby_request_topic}")
 
 
 async def main():
