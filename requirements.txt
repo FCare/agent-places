@@ -1,0 +1,5 @@
+git+https://github.com/FCare/nexus-client.git@master
+aiohttp>=3.8.0
+requests>=2.31.0
+rapidfuzz>=3.0.0
+osmium>=4.0.0

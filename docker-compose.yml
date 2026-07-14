@@ -1,0 +1,20 @@
+services:
+  places:
+    build:
+      context: .
+    container_name: places
+    environment:
+      VK_URL: ${VK_URL:-http://voight-kampff:8080}
+      MQTT_HOST: ${MQTT_HOST:-mosquitto-broker}
+      MQTT_PORT: ${MQTT_PORT:-1883}
+      MQTT_SERVICE_USERNAME: ${MQTT_SERVICE_USERNAME}
+      MQTT_SERVICE_API_KEY: ${MQTT_SERVICE_API_KEY}
+      LOCAL_MATCH_THRESHOLD: ${LOCAL_MATCH_THRESHOLD:-70}
+      DATATOURISME_API_KEY: ${DATATOURISME_API_KEY:-}
+    networks:
+      - ansible
+    restart: unless-stopped
+
+networks:
+  ansible:
+    external: true
