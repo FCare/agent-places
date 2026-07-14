@@ -458,11 +458,10 @@ async def on_user_connected(topic: str, payload):
                 {
                     "topic": poi_request_topic,
                     "description": (
-                        "Cherche des commerces/lieux précis (restaurants, boulangeries, pharmacies...) "
-                        "autour d'une ville. 'amenity' suit le vocabulaire OpenStreetMap : restaurant, "
-                        "cafe, bar, pharmacy, bakery, supermarket, fuel, bank, hospital... "
-                        "'cuisine' optionnel (restaurant uniquement) : sushi, japanese, italian, pizza, "
-                        "burger, french... Utiliser pour 'un restaurant/une pharmacie/etc. à/vers X'."
+                        "Cherche des commerces précis (restaurant, boulangerie, pharmacie...) autour "
+                        "d'une ville — 'un resto/une pharmacie/etc. à/vers X'. 'amenity' = vocabulaire "
+                        "OpenStreetMap (restaurant, cafe, bar, pharmacy, bakery, supermarket...). "
+                        "'cuisine' optionnel, restaurant uniquement (sushi, italian, pizza...)."
                     ),
                     "access": "write",
                     "response_topic": poi_result_topic,
